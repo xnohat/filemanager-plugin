@@ -1,4 +1,4 @@
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 treeView = nil
 cwd = WorkingDirectory()
@@ -70,6 +70,7 @@ function getSelection()
 end
 
 -- don't use built-in view.Cursor:SelectLine() as it will copy to clipboard (in old versions of Micro)
+-- TODO: We require micro >= 1.3.2, so is this still an issue?
 function selectLineInTree(view)
     if view == treeView then
         if debug == true then messenger:AddLog("***** selectLineInTree(view) *****") end
@@ -84,18 +85,35 @@ function onCursorDown(view) selectLineInTree(view) end
 function onCursorUp(view)   selectLineInTree(view) end
 
 -- mouse callback from micro editor when a left button is clicked on your view
-function onMousePress(view, event)
+function preMousePress(view, event)
     if view == treeView then  -- check view is tree as only want inputs from that view.
          local columns, rows = event:Position()
+<<<<<<< ours
          if debug == true then messenger:AddLog("INFO: --> Mouse pressed -> columns location rows location -> ",columns,rows) end
          return false
+=======
+         debug("INFO: --> Mouse pressed -> columns location rows location -> ",columns,rows)
+         return true
+>>>>>>> theirs
     end
 end
+function onMousePress(view, event)
+    if view == treeView then
+        selectLineInTree(view)
+        preInsertNewline(view)
+        return false
+    end
+end
+
 
 -- disallow selecting topmost line in treeView:
 function preCursorUp(view)  
     if view == treeView then
+<<<<<<< ours
         if debug == true then messenger:AddLog("***** preCursor(view) *****") end
+=======
+        debug("***** preCursor() *****")
+>>>>>>> theirs
         if view.Cursor.Loc.Y == 1 then
             return false
 end end end
@@ -103,7 +121,7 @@ end end end
 -- allows for deleting files
 function preDelete(view)
     if view == treeView then
-        if debug == true then messenger:AddLog("***** preDelete(view) *****") end
+        if debug == true then messenger:AddLog("***** preDelete() *****") end
         local selected = getSelection()
         if selected == ".." then return false end
         local type, command
