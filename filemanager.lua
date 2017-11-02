@@ -177,6 +177,7 @@ function preQuit(view)
     if view == treeView then
         if debug == true then messenger:AddLog("***** preQuit(view) *****") end
         view.Buf.IsModified = false
+        treeView = nil
     end
 end
 function preQuitAll(view) treeView.Buf.IsModified = false end
