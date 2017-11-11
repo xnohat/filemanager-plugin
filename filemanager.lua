@@ -88,14 +88,9 @@ function onCursorUp(view)   selectLineInTree(view) end
 function preMousePress(view, event)
     if view == treeView then  -- check view is tree as only want inputs from that view.
          local columns, rows = event:Position()
-<<<<<<< ours
          if debug == true then messenger:AddLog("INFO: --> Mouse pressed -> columns location rows location -> ",columns,rows) end
          return false
-=======
-         debug("INFO: --> Mouse pressed -> columns location rows location -> ",columns,rows)
-         return true
->>>>>>> theirs
-    end
+         
 end
 function onMousePress(view, event)
     if view == treeView then
@@ -109,11 +104,7 @@ end
 -- disallow selecting topmost line in treeView:
 function preCursorUp(view)  
     if view == treeView then
-<<<<<<< ours
         if debug == true then messenger:AddLog("***** preCursor(view) *****") end
-=======
-        debug("***** preCursor() *****")
->>>>>>> theirs
         if view.Cursor.Loc.Y == 1 then
             return false
 end end end
