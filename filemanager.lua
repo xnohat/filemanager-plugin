@@ -89,7 +89,8 @@ function preMousePress(view, event)
     if view == treeView then  -- check view is tree as only want inputs from that view.
          local columns, rows = event:Position()
          if debug == true then messenger:AddLog("INFO: --> Mouse pressed -> columns location rows location -> ",columns,rows) end
-         return false
+         return true
+             end
          
 end
 function onMousePress(view, event)
