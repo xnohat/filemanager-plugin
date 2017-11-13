@@ -177,20 +177,42 @@ function preQuitAll(view) treeView.Buf.IsModified = false end
 -- scanDir will scan contents of the directory passed.
 function scanDir(directory)
     if debug == true then messenger:AddLog("***** scanDir(directory) ---> ",directory) end
+    -- setup variables
     local i, list, proc = 3, {}, nil
     list[1] = (isWin and driveLetter or "") .. cwd  -- current directory working.
     list[2] = ".."  -- used for going up a level in directory.
-    if isWin then  -- if windows
+
+    -- new bindings added to micro V1.3.2
+    local ioutil = import("ioutil")
+    local files, err = ioutil.ReadDir(".")
+    -- ge
+    if err ~= nil then
+        messenger:Error("Error reading directory in filemanager plugin.")
+    else
+	    for file in files do
+            if file.IsDir() == true then list[i] = file.Name() + "/"
+        else 
+            list[i] = file.Name()
+        end
+
+        i = i + 1
+    end
+end
+	
+
+--[[     if isWin then  -- if windows
         proc = io.popen('dir /a /b "'..directory..'"')
     else           -- linux or unix system
         proc = io.popen('ls -Ap "'..directory..'"')
     end
+
     -- load filenames to a list
     for filename in proc:lines() do
         list[i] = filename
         i = i + 1
     end
-    proc:close()
+    proc:close() ]]
+
     return list
 end
 
@@ -200,8 +222,10 @@ function isDir(path)
     if debug == true then messenger:AddLog("***** isDir(path) ---> ",path) end
     local dir, proc = false, nil
     if isWin then
+        --  This function io.popen is system dependent and is not available on all platforms
         proc = io.popen('IF EXIST ' .. driveLetter .. JoinPaths(cwd, path) .. '/* (ECHO d) ELSE (ECHO -)')
     else
+        --  This function io.popen is system dependent and is not available on all platforms
         proc = io.popen('ls -adl "' .. JoinPaths(cwd, path) .. '"')
     end
     if proc:read(1) == "d" then
