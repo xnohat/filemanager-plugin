@@ -252,3 +252,10 @@ AddRuntimeFile("filemanager", "syntax", "syntax.yaml")
 -- Lua Notes
 -- .. means concat a string (+ in go)
 -- # means length of array (eg #files)
+
+-- PROJECT TODO's
+-- TODO: Add flag for hidden files and directory showing
+-- TODO: Look at icons for fonts for the know file types.
+-- TODO: Get readOnly working on the view.
+-- TODO: Look at colour theme for directory.
+
