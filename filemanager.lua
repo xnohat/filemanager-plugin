@@ -1,12 +1,18 @@
 VERSION = "2.1.0"
 
+-- check for flags and if not set, set them to default values.
+if GetOption("fileManagerPluginShowHiddenFiles") == nil then
+    AddOption("fileManagerPluginShowHiddenFiles", true)
+end
+
 -- Global
 treeView = nil
-cwdFiles = {}  -- list of current working directory files and directory's
-cwd = WorkingDirectory()  -- Current working Directory
-driveLetter = "C:\\"  -- Windows support
+cwdFiles = {} -- list of current working directory files and directory's
+cwd = WorkingDirectory() -- Current working Directory
+driveLetter = "C:\\" -- Windows support
 isWin = (OS == "windows")
 debugMode = true -- set to true for debug info or false to disable debug info
+showHiddenFiles = true  -- show hidden files flag default is to show them.
 
 function debugInfo(log)
     if debugMode == true then
@@ -57,6 +63,7 @@ function setupOptions()
     end
     -- TODO: need to set read only in view type.
     tabs[curTab + 1]:Resize()
+    if not GetOption("fileManagerPluginShowHiddenFiles") then
 end
 
 -- CloseTree will close the tree plugin view and release memory.
