@@ -1,14 +1,15 @@
 VERSION = "2.1.0"
 
+-- Global
 treeView = nil
-cwd = WorkingDirectory()
-driveLetter = "C:\\"
+cwdFiles = {}  -- list of current working directory files and directorys
+cwd = WorkingDirectory()  -- Current working Directory
+driveLetter = "C:\\"  -- Windows surport
 isWin = (OS == "windows")
-debug = true
-files = {}
+debugMode = true -- set to true for debug info or false to diable debug info
 
 function debugInfo(log)
-    if debug == true then
+    if debugMode == true then
         messenger:AddLog("Filemanager plugin : " .. log)
     end
 end
@@ -117,7 +118,7 @@ function preMousePress(view, event)
     if view == treeView then -- check view is tree as only want inputs from that view.
         debugInfo("Function --> preMousePress(view, event)")
         local columns, rows = event:Position()
-        debugInfo ("** Mouse pressed -> columns = " .. columns .. " rows = "  .. rows)
+        debugInfo("** Mouse pressed -> columns = " .. columns .. " rows = " .. rows)
         return true
     end
 end
@@ -217,7 +218,7 @@ function scanDir(directory)
     local ioutil = import("io/ioutil")
     local list = {}
     local err
-    files, err = ioutil.ReadDir(".")
+    cwdFiles, err = ioutil.ReadDir(".")
     -- new bindings added to micro V1.3.2
     if err ~= nil then
         messenger:Error("Error reading directory in filemanager plugin.")
@@ -225,11 +226,11 @@ function scanDir(directory)
         list[1] = (isWin and driveLetter or "") .. cwd -- current directory working.
         list[2] = ".." -- used for going up a level in directory.
         local i = 3 -- start at 3 due to above inserted in list
-        for i = 3, #files do
-            if files[i]:IsDir() then
-                list[i] = files[i]:Name() .. "/" -- add / to directorys
+        for i = 3, #cwdFiles do
+            if cwdFiles[i]:IsDir() then
+                list[i] = cwdFiles[i]:Name() .. "/" -- add / to directorys
             else
-                list[i] = files[i]:Name()
+                list[i] = cwdFiles[i]:Name()
             end
         end
     end
@@ -237,7 +238,7 @@ function scanDir(directory)
     return list
 end
 
- -- TODO: needs sorting below as not working
+-- TODO: needs sorting below as not working
 function isDir(path)
     debugInfo("Function --> isDir( " .. path .. " )")
     local fullpath = JoinPaths(cwd, path)
@@ -255,7 +256,6 @@ AddRuntimeFile("filemanager", "syntax", "syntax.yaml")
 
 -- PROJECT TODO's
 -- TODO: Add flag for hidden files and directory showing
--- TODO: Look at icons for fonts for the know file types.
+-- TODO: Look at icons for fonts for the known file types.
 -- TODO: Get readOnly working on the view.
 -- TODO: Look at colour theme for directory.
-
