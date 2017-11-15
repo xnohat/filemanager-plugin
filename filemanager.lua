@@ -2,15 +2,15 @@ VERSION = "2.1.0"
 
 -- Global
 treeView = nil
-cwdFiles = {}  -- list of current working directory files and directorys
+cwdFiles = {}  -- list of current working directory files and directory's
 cwd = WorkingDirectory()  -- Current working Directory
-driveLetter = "C:\\"  -- Windows surport
+driveLetter = "C:\\"  -- Windows support
 isWin = (OS == "windows")
-debugMode = true -- set to true for debug info or false to diable debug info
+debugMode = true -- set to true for debug info or false to disable debug info
 
 function debugInfo(log)
     if debugMode == true then
-        messenger:AddLog("Filemanager plugin : " .. log)
+        messenger:AddLog("File manager plugin : " .. log)
     end
 end
 
@@ -55,7 +55,7 @@ function setupOptions()
     if status ~= nil then
         messenger:Error("Error setting statusline option -> ", status)
     end
-    -- TODO: need to set readonly in view type.
+    -- TODO: need to set read only in view type.
     tabs[curTab + 1]:Resize()
 end
 
@@ -228,7 +228,7 @@ function scanDir(directory)
         local i = 3 -- start at 3 due to above inserted in list
         for i = 3, #cwdFiles do
             if cwdFiles[i]:IsDir() then
-                list[i] = cwdFiles[i]:Name() .. "/" -- add / to directorys
+                list[i] = cwdFiles[i]:Name() .. "/" -- add / to directory's
             else
                 list[i] = cwdFiles[i]:Name()
             end
@@ -254,8 +254,9 @@ AddRuntimeFile("filemanager", "syntax", "syntax.yaml")
 -- .. means concat a string (+ in go)
 -- # means length of array (eg #files)
 
--- PROJECT TODO's
+-- PROJECT To do's
 -- TODO: Add flag for hidden files and directory showing
 -- TODO: Look at icons for fonts for the known file types.
 -- TODO: Get readOnly working on the view.
 -- TODO: Look at colour theme for directory.
+-- TODO: sort delete function out.
