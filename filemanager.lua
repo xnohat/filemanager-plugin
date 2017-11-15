@@ -4,13 +4,18 @@ treeView = nil
 cwd = WorkingDirectory()
 driveLetter = "C:\\"
 isWin = (OS == "windows")
-debug = false
+debug = true
+files = {}
+
+function debugInfo(log)
+    if debug == true then
+        messenger:AddLog("Filemanager plugin : " .. log)
+    end
+end
 
 -- ToggleTree will toggle the tree view visible (create) and hide (delete).
 function ToggleTree()
-    if debug == true then
-        messenger:AddLog("***** ToggleTree() *****")
-    end
+    debugInfo("Function --> ToggleTree()")
     if treeView == nil then
         OpenTree()
     else
@@ -20,9 +25,7 @@ end
 
 -- OpenTree setup's the view
 function OpenTree()
-    if debug == true then
-        messenger:AddLog("***** OpenTree() *****")
-    end
+    debugInfo("Function --> OpenTree()")
     CurView():VSplitIndex(NewBuffer("", "FileManager"), 0)
     setupOptions()
     refreshTree()
@@ -30,9 +33,7 @@ end
 
 -- setupOptions setup tree view options
 function setupOptions()
-    if debug == true then
-        messenger:AddLog("***** setupOptions() *****")
-    end
+    debugInfo("Function --> setupOptions()")
     treeView = CurView()
     treeView.Width = 30
     treeView.LockWidth = true
@@ -59,9 +60,7 @@ end
 
 -- CloseTree will close the tree plugin view and release memory.
 function CloseTree()
-    if debug == true then
-        messenger:AddLog("***** CloseTree() *****")
-    end
+    debugInfo("Function --> CloseTree()")
     if treeView ~= nil then
         treeView.Buf.IsModified = false
         treeView:Quit(false)
@@ -71,10 +70,7 @@ end
 
 -- refreshTree will remove the buffer and load contents from folder
 function refreshTree()
-    if debug == true then
-        messenger:AddLog("***** refreshTree() *****")
-    end
-    -- if debug == true then messenger:AddLog("Start -> ",treeView.Buf:Start()," End -> ",treeView.Buf:End()) end
+    debugInfo("Function --> refreshTree()")
     treeView.Buf:remove(treeView.Buf:Start(), treeView.Buf:End())
     local list = table.concat(scanDir(cwd), "\n ")
     if debug == true then
@@ -85,19 +81,17 @@ end
 
 -- returns currently selected line in treeView
 function getSelection()
-    if debug == true then
-        messenger:AddLog("***** getSelection() ---> ", treeView.Buf:Line(treeView.Cursor.Loc.Y):sub(2))
-    end
+    debugInfo("Function --> getSelection()")
+    debugInfo("** cursor line number --> " .. treeView.Cursor.Loc.Y)
+    debugInfo("** selection passed --> " .. treeView.Buf:Line(treeView.Cursor.Loc.Y):sub(2))
     return (treeView.Buf:Line(treeView.Cursor.Loc.Y)):sub(2)
 end
 
 -- don't use built-in view.Cursor:SelectLine() as it will copy to clipboard (in old versions of Micro)
 -- TODO: We require micro >= 1.3.2, so is this still an issue?
-function selectLineInTree(view)
+function highlightLineInTree(view)
     if view == treeView then
-        if debug == true then
-            messenger:AddLog("***** selectLineInTree(view) *****")
-        end
+        debugInfo("Function --> highlightLineInTree(view)")
         local y = view.Cursor.Loc.Y
         view.Cursor.CurSelection[1] = Loc(0, y)
         view.Cursor.CurSelection[2] = Loc(view.Width, y)
@@ -106,24 +100,30 @@ end
 
 -- 'beautiful' file selection:
 function onCursorDown(view)
-    selectLineInTree(view)
+    if view == treeView then
+        debugInfo("Function --> onCursorDown(view)")
+        highlightLineInTree(view)
+    end
 end
 function onCursorUp(view)
-    selectLineInTree(view)
+    if view == treeView then
+        debugInfo("Function --> onCursorUp(view)")
+        highlightLineInTree(view)
+    end
 end
 
 -- mouse callback from micro editor when a left button is clicked on your view
 function preMousePress(view, event)
     if view == treeView then -- check view is tree as only want inputs from that view.
+        debugInfo("Function --> preMousePress(view, event)")
         local columns, rows = event:Position()
-        if debug == true then
-            messenger:AddLog("INFO: --> Mouse pressed -> columns location rows location -> ", columns, rows)
-        end
+        debugInfo ("** Mouse pressed -> columns = " .. columns .. " rows = "  .. rows)
         return true
     end
 end
 function onMousePress(view, event)
     if view == treeView then
+        debugInfo("Function --> onMousePress(view, event)")
         selectLineInTree(view)
         preInsertNewline(view)
         return false
@@ -133,9 +133,7 @@ end
 -- disallow selecting topmost line in treeView:
 function preCursorUp(view)
     if view == treeView then
-        if debug == true then
-            messenger:AddLog("***** preCursor(view) *****")
-        end
+        debugInfo("Function --> preCursor(view)")
         if view.Cursor.Loc.Y == 1 then
             return false
         end
@@ -145,9 +143,7 @@ end
 -- allows for deleting files
 function preDelete(view)
     if view == treeView then
-        if debug == true then
-            messenger:AddLog("***** preDelete() *****")
-        end
+        debugInfo("Function --> preDelete(view)")
         local selected = getSelection()
         if selected == ".." then
             return false
@@ -178,20 +174,14 @@ end
 -- If it is a file then open it in a new vertical view
 function preInsertNewline(view)
     if view == treeView then
-        if debug == true then
-            messenger:AddLog("***** preInsertNewLine(view)  *****")
-        end
+        debugInfo("Function --> preInsertNewLine(view)")
         local selected = getSelection()
         if view.Cursor.Loc.Y == 0 then
             return false -- topmost line is cwd, so disallowing selecting it
         elseif isDir(selected) then -- if directory then reload contents of tree view
-            if debug == true then
-                messenger:AddLog("current working directory -> ", cwd)
-            end
+            debugInfo("** current working directory -> " .. cwd)
             cwd = JoinPaths(cwd, selected)
-            if debug == true then
-                messenger:AddLog("current working directory with selected directory -> ", cwd)
-            end
+            debugInfo("** current working directory with selected directory -> " .. cwd)
             refreshTree()
         else -- open file in new vertical view
             local filename = JoinPaths(cwd, selected)
@@ -209,10 +199,9 @@ end
 
 -- don't prompt to save tree view
 function preQuit(view)
+    debugInfo("Function --> preQuit(view)")
     if view == treeView then
-        if debug == true then
-            messenger:AddLog("***** preQuit(view) *****")
-        end
+        debugInfo("** treeView inner if called")
         view.Buf.IsModified = false
         treeView = nil
     end
@@ -223,29 +212,43 @@ end
 
 -- scanDir will scan contents of the directory passed.
 function scanDir(directory)
-    if debug == true then
-        messenger:AddLog("***** scanDir(directory) ---> ", directory)
-    end
+    debugInfo("Function --> scanDir( " .. directory .. " )")
     -- setup variables
     local ioutil = import("io/ioutil")
-    local files, err = ioutil.ReadDir(".")
-    local i = 1
     local list = {}
-    list[1] = (isWin and driveLetter or "") .. cwd -- current directory working.
-    list[2] = ".." -- used for going up a level in directory.
+    local err
+    files, err = ioutil.ReadDir(".")
     -- new bindings added to micro V1.3.2
     if err ~= nil then
         messenger:Error("Error reading directory in filemanager plugin.")
     else
-        for i = 1, #files do
-            list[i] = files[i]:Name()
-            list[i] = files[i]:isDir()
+        list[1] = (isWin and driveLetter or "") .. cwd -- current directory working.
+        list[2] = ".." -- used for going up a level in directory.
+        local i = 3 -- start at 3 due to above inserted in list
+        for i = 3, #files do
+            if files[i]:IsDir() then
+                list[i] = files[i]:Name() .. "/" -- add / to directorys
+            else
+                list[i] = files[i]:Name()
+            end
         end
     end
 
     return list
 end
 
+ -- TODO: needs sorting below as not working
+function isDir(path)
+    debugInfo("Function --> isDir( " .. path .. " )")
+    local fullpath = JoinPaths(cwd, path)
+    isdir = true
+    return isdir
+end
+
 -- micro editor commands
 MakeCommand("tree", "filemanager.ToggleTree", 0)
 AddRuntimeFile("filemanager", "syntax", "syntax.yaml")
+
+-- Lua Notes
+-- .. means concat a string (+ in go)
+-- # means length of array (eg #files)
