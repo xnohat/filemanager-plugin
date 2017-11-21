@@ -184,8 +184,7 @@ function preDelete(view)
     end
 end
 
-
--- preInterNewline callback from micro editor. When user presses enter then if it is a folder clear buffer 
+-- preInterNewline callback from micro editor. When user presses enter then if it is a folder clear buffer
 -- and reload contents with folder selected or if it is a file then open it in a new vertical view.
 function preInsertNewline(view)
     if view == treeView then
@@ -209,6 +208,7 @@ function preInsertNewline(view)
     return true
 end
 
+
 -- preQuit callback from micro editor. Don't prompt to save tree view when it is closed.
 function preQuit(view)
     debugInfo("Function --> preQuit(view)")
@@ -219,7 +219,7 @@ function preQuit(view)
     end
 end
 
--- TODO: check this callback to see if it is called when all is 
+-- TODO: check this callback to see if it is called when all is
 -- preQuitAll callback from micro editor. Don't prompt to save when micro is closed.
 function preQuitAll(view)
     treeView.Buf.IsModified = false
@@ -265,12 +265,11 @@ function isDir(path)
     local file_info = go_os.Stat(fullpath) -- Returns a FileInfo on the current file/path
 
     if file_info ~= nil then
-       
         return file_info:IsDir() -- Returns true if directory or false if a file.
     else
         debugInfo("** failed, returning nil ( " .. path .. " )")
         messenger:Error("isDir() failed, returning nil")
-        return nil  -- Returns nill if error reading file_info
+        return nil -- Returns nill if error reading file_info
     end
 end
 
