@@ -38,7 +38,7 @@ function OpenTree()
     refreshTree()
 end
 
--- setupOptions setup tree view options
+-- setupOptions setup's tree view options
 function setupOptions()
     debugInfo("Function --> setupOptions()")
     treeView = CurView()
@@ -138,7 +138,7 @@ end
 function onMousePress(view, event)
     if view == treeView then
         debugInfo("Function --> onMousePress(view, event)")
-        selectLineInTree(view)
+        highlightLineInTree(view)
         preInsertNewline(view)
         return false
     end
