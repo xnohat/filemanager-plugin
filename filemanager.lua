@@ -1,19 +1,19 @@
 VERSION = "2.1.0"
 
--- check for flags and if not set, set them to default values.
+-- check for plugin flags and if not set, set them to default values.
 if GetOption("fileManagerPluginShowHiddenFiles") == nil then
     AddOption("fileManagerPluginShowHiddenFiles", true)
 end
 
--- Global
+-- Global variables
 treeView = nil
-cwdFiles = {} -- list of current working directory files and directory's
 cwd = WorkingDirectory() -- Current working Directory
-driveLetter = "C:\\" -- Windows support
 isWin = (OS == "windows")
 debugMode = true -- set to true for debug info or false to disable debug info
-showHiddenFiles = true  -- show hidden files flag default is to show them.
+showHiddenFiles = true -- show hidden files flag default is to show them.
 
+-- Functions
+-- debugInfo is used for logging to micro editor log for debugging plugin.
 function debugInfo(log)
     if debugMode == true then
         messenger:AddLog("File manager plugin : " .. log)
@@ -64,6 +64,8 @@ function setupOptions()
     -- TODO: need to set read only in view type.
     tabs[curTab + 1]:Resize()
     if not GetOption("fileManagerPluginShowHiddenFiles") then
+        showHiddenFiles = false
+    end
 end
 
 -- CloseTree will close the tree plugin view and release memory.
@@ -87,7 +89,7 @@ function refreshTree()
     treeView.Buf:Insert(Loc(0, 0), list)
 end
 
--- returns currently selected line in treeView
+-- getSelection returns currently selected line in treeView
 function getSelection()
     debugInfo("Function --> getSelection()")
     debugInfo("** cursor line number --> " .. treeView.Cursor.Loc.Y)
@@ -106,13 +108,15 @@ function highlightLineInTree(view)
     end
 end
 
--- 'beautiful' file selection:
+-- onCursorDown callback from micro editor. Used to highlight line when cursor down is pressed.
 function onCursorDown(view)
     if view == treeView then
         debugInfo("Function --> onCursorDown(view)")
         highlightLineInTree(view)
     end
 end
+
+-- onCursorUp callback from micro editor. Used to highlight line when cursor up is pressed.
 function onCursorUp(view)
     if view == treeView then
         debugInfo("Function --> onCursorUp(view)")
@@ -120,7 +124,7 @@ function onCursorUp(view)
     end
 end
 
--- mouse callback from micro editor when a left button is clicked on your view
+-- onMousePress callback from micro editor. When a left button is clicked on your view.
 function preMousePress(view, event)
     if view == treeView then -- check view is tree as only want inputs from that view.
         debugInfo("Function --> preMousePress(view, event)")
@@ -129,6 +133,8 @@ function preMousePress(view, event)
         return true
     end
 end
+
+--onMousePress callback from micro editor.
 function onMousePress(view, event)
     if view == treeView then
         debugInfo("Function --> onMousePress(view, event)")
@@ -138,7 +144,7 @@ function onMousePress(view, event)
     end
 end
 
--- disallow selecting topmost line in treeView:
+-- preCursorUp callback from micro editor. Disallow selecting topmost line in treeView:
 function preCursorUp(view)
     if view == treeView then
         debugInfo("Function --> preCursor(view)")
@@ -148,7 +154,7 @@ function preCursorUp(view)
     end
 end
 
--- allows for deleting files
+-- preDelete callback from micro editor. Allows for deleting files
 function preDelete(view)
     if view == treeView then
         debugInfo("Function --> preDelete(view)")
@@ -164,7 +170,7 @@ function preDelete(view)
             type = "file"
             command = isWin and "del" or "rm -I"
         end
-        command = command .. " " .. (isWin and driveLetter or "") .. JoinPaths(cwd, selected)
+        command = command .. " " .. JoinPaths(cwd, selected)
 
         local yes, cancel = messenger:YesNoPrompt("Do you want to delete " .. type .. " '" .. selected .. "'? ")
         if not cancel and yes then
@@ -178,8 +184,9 @@ function preDelete(view)
     end
 end
 
--- When user presses enter then if it is a folder clear buffer and reload contents with folder selected.
--- If it is a file then open it in a new vertical view
+
+-- preInterNewline callback from micro editor. When user presses enter then if it is a folder clear buffer 
+-- and reload contents with folder selected or if it is a file then open it in a new vertical view.
 function preInsertNewline(view)
     if view == treeView then
         debugInfo("Function --> preInsertNewLine(view)")
@@ -193,9 +200,6 @@ function preInsertNewline(view)
             refreshTree()
         else -- open file in new vertical view
             local filename = JoinPaths(cwd, selected)
-            if isWin then
-                filename = driveLetter .. filename
-            end
             CurView():VSplitIndex(NewBuffer("", filename), 1)
             CurView():ReOpen()
             tabs[curTab + 1]:Resize()
@@ -205,7 +209,7 @@ function preInsertNewline(view)
     return true
 end
 
--- don't prompt to save tree view
+-- preQuit callback from micro editor. Don't prompt to save tree view when it is closed.
 function preQuit(view)
     debugInfo("Function --> preQuit(view)")
     if view == treeView then
@@ -214,6 +218,9 @@ function preQuit(view)
         treeView = nil
     end
 end
+
+-- TODO: check this callback to see if it is called when all is 
+-- preQuitAll callback from micro editor. Don't prompt to save when micro is closed.
 function preQuitAll(view)
     treeView.Buf.IsModified = false
 end
@@ -222,37 +229,150 @@ end
 function scanDir(directory)
     debugInfo("Function --> scanDir( " .. directory .. " )")
     -- setup variables
-    local ioutil = import("io/ioutil")
+    --local cwdFiles = {} -- list of current working directory files and directory's
+    local go_ioutil = import("io/ioutil")
     local list = {}
-    local err
-    cwdFiles, err = ioutil.ReadDir(".")
+    --local err, i
+    local i
+    local cwdFiles, err = go_ioutil.ReadDir(directory)
     -- new bindings added to micro V1.3.2
     if err ~= nil then
         messenger:Error("Error reading directory in filemanager plugin.")
     else
-        list[1] = (isWin and driveLetter or "") .. cwd -- current directory working.
+        list[1] = cwd -- current directory working.
         list[2] = ".." -- used for going up a level in directory.
-        local i = 3 -- start at 3 due to above inserted in list
-        for i = 3, #cwdFiles do
+        for i = 1, #cwdFiles do
             if cwdFiles[i]:IsDir() then
-                list[i] = cwdFiles[i]:Name() .. "/" -- add / to directory's
+                list[i + 2] = cwdFiles[i]:Name() .. "/" -- add / to directory's
             else
-                list[i] = cwdFiles[i]:Name()
+                list[i + 2] = cwdFiles[i]:Name()
             end
         end
     end
-
     return list
 end
 
 -- TODO: needs sorting below as not working
+-- isDir checks the path passed and returns true or false if directory. Returns nil if fails to read path.
 function isDir(path)
+    -- return true
+    if path == ".." then
+        return true
+    end
     debugInfo("Function --> isDir( " .. path .. " )")
     local fullpath = JoinPaths(cwd, path)
-    isdir = true
-    return isdir
+    local go_os = import("os")
+    local file_info = go_os.Stat(fullpath) -- Returns a FileInfo on the current file/path
+
+    if file_info ~= nil then
+       
+        return file_info:IsDir() -- Returns true if directory or false if a file.
+    else
+        debugInfo("** failed, returning nil ( " .. path .. " )")
+        messenger:Error("isDir() failed, returning nil")
+        return nil  -- Returns nill if error reading file_info
+    end
 end
 
+function checkExtension(extension)
+    local extensions = {
+        styl = "",
+        sass = "",
+        scss = "",
+        htm = "",
+        html = "",
+        slim = "",
+        ejs = "",
+        css = "",
+        less = "",
+        md = "",
+        markdown = "",
+        rmd = "",
+        json = "",
+        js = "",
+        jsx = "",
+        rb = "",
+        php = "",
+        py = "",
+        pyc = "",
+        pyo = "",
+        pyd = "",
+        coffee = "",
+        mustache = "",
+        hbs = "",
+        conf = "",
+        ini = "",
+        yml = "",
+        yaml = "",
+        bat = "",
+        jpg = "",
+        jpeg = "",
+        bmp = "",
+        png = "",
+        gif = "",
+        ico = "",
+        twig = "",
+        cpp = "",
+        c = "",
+        cxx = "",
+        cc = "",
+        cp = "",
+        c = "",
+        h = "",
+        hpp = "",
+        hxx = "",
+        hs = "",
+        lhs = "",
+        lua = "",
+        java = "",
+        sh = "",
+        fish = "",
+        bash = "",
+        zsh = "",
+        ksh = "",
+        csh = "",
+        awk = "",
+        ps1 = "",
+        ml = "λ",
+        mli = "λ",
+        diff = "",
+        db = "",
+        sql = "",
+        dump = "",
+        clj = "",
+        cljc = "",
+        cljs = "",
+        edn = "",
+        scala = "",
+        go = "",
+        dart = "",
+        xul = "",
+        sln = "",
+        suo = "",
+        pl = "",
+        pm = "",
+        t = "",
+        rss = "",
+        f = "",
+        fsscript = "",
+        fsx = "",
+        fs = "",
+        fsi = "",
+        rs = "",
+        rlib = "",
+        d = "",
+        erl = "",
+        hrl = "",
+        vim = "",
+        ai = "",
+        psd = "",
+        psb = "",
+        ts = "",
+        tsx = "",
+        jl = "",
+        pp = ""
+    }
+end
 -- micro editor commands
 MakeCommand("tree", "filemanager.ToggleTree", 0)
 AddRuntimeFile("filemanager", "syntax", "syntax.yaml")
