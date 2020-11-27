@@ -1,41 +1,40 @@
-VERSION = "3.4.0"
+VERSION = "4.0.0"
+
+local micro = import("micro")
+local config = import("micro/config")
+local shell = import("micro/shell")
+local buffer = import("micro/buffer")
+local golib_os = import("os")
+local golib_filepath = import("path/filepath")
+local golib_ioutil = import("ioutil")
 
 -- Let the user disable showing of dotfiles like ".editorconfig" or ".DS_STORE"
-if GetOption("filemanager-showdotfiles") == nil then
-	AddOption("filemanager-showdotfiles", true)
-end
+config.RegisterCommonOption("filemanager", "showdotfiles", true)
 
 -- Let the user disable showing files ignored by the VCS (i.e. gitignored)
-if GetOption("filemanager-showignored") == nil then
-	AddOption("filemanager-showignored", true)
-end
+config.RegisterCommonOption("filemanager", "showignored", true)
 
 -- Let the user disable going to parent directory via left arrow key when file selected (not directory)
-if GetOption("filemanager-compressparent") == nil then
-	AddOption("filemanager-compressparent", true)
-end
+config.RegisterCommonOption("filemanager", "compressparent", true)
 
 -- Let the user choose to list sub-folders first when listing the contents of a folder
-if GetOption("filemanager-foldersfirst") == nil then
-	AddOption("filemanager-foldersfirst", true)
-end
+config.RegisterCommonOption("filemanager", "foldersfirst", true)
 
 -- Lets the user have the filetree auto-open any time Micro is opened
 -- false by default, as it's a rather noticable user-facing change
-if GetOption("filemanager-openonstart") == nil then
-	AddOption("filemanager-openonstart", false)
-end
+config.RegisterCommonOption("filemanager", "openonstart", false)
 
 -- Clear out all stuff in Micro's messenger
 local function clear_messenger()
-	messenger:Reset()
-	messenger:Clear()
+	-- TODO find below functions in micro v2 api
+	--micro.InfoBar:Reset()
+	--messenger:Clear()
 end
 
--- Holds the CurView() we're manipulating
-local tree_view = nil
+-- Holds the micro.CurPane() we're manipulating
+local tree_BufPane = nil
 -- Keeps track of the current working directory
-local current_dir = WorkingDirectory()
+local current_dir = golib_os.Getwd()
 -- Keep track of current highest visible indent to resize width appropriately
 local highest_visible_indent = 0
 -- Holds a table of paths -- objects from new_listobj() calls
@@ -73,7 +72,6 @@ end
 -- A check for if a path is a dir
 local function is_dir(path)
 	-- Used for checking if dir
-	local golib_os = import("os")
 	-- Returns a FileInfo on the current file/path
 	local file_info, stat_error = golib_os.Stat(path)
 	-- Wrap in nil check for file/dirs without read permissions
@@ -82,7 +80,7 @@ local function is_dir(path)
 		return file_info:IsDir()
 	else
 		-- Couldn't stat the file/dir, usually because no read permissions
-		messenger:Error("Error checking if is dir: ", stat_error)
+		micro.InfoBar():Error("Error checking if is dir: ", stat_error)
 		-- Nil since we can't read the path
 		return nil
 	end
@@ -93,7 +91,7 @@ end
 local function get_ignored_files(tar_dir)
 	-- True/false if the target dir returns a non-fatal error when checked with 'git status'
 	local function has_git()
-		local git_rp_results = RunShellCommand('git  -C "' .. tar_dir .. '" rev-parse --is-inside-work-tree')
+		local git_rp_results = shell.RunCommand('git  -C "' .. tar_dir .. '" rev-parse --is-inside-work-tree')
 		return git_rp_results:match("^true%s*$")
 	end
 	local readout_results = {}
@@ -101,7 +99,7 @@ local function get_ignored_files(tar_dir)
 	if has_git() then
 		-- If the dir is a git dir, get all ignored in the dir
 		local git_ls_results =
-			RunShellCommand('git -C "' .. tar_dir .. '" ls-files . --ignored --exclude-standard --others --directory')
+			shell.RunCommand('git -C "' .. tar_dir .. '" ls-files . --ignored --exclude-standard --others --directory')
 		-- Cut off the newline that is at the end of each result
 		for split_results in string.gmatch(git_ls_results, "([^\r\n]+)") do
 			-- git ls-files adds a trailing slash if it's a dir, so we remove it (if it is one)
@@ -117,12 +115,11 @@ end
 -- Returns the basename of a path (aka a name without leading path)
 local function get_basename(path)
 	if path == nil then
-		messenger:AddLog("Bad path passed to get_basename")
+		micro.Log("Bad path passed to get_basename")
 		return nil
 	else
 		-- Get Go's path lib for a basename callback
-		local golib_path = import("filepath")
-		return golib_path.Base(path)
+		return golib_filepath.Base(path)
 	end
 end
 
@@ -139,31 +136,30 @@ end
 -- Structures the output of the scanned directory content to be used in the scanlist table
 -- This is useful for both initial creation of the tree, and when nesting with uncompress_target()
 local function get_scanlist(dir, ownership, indent_n)
-	local golib_ioutil = import("ioutil")
 	-- Gets a list of all the files in the current dir
 	local dir_scan, scan_error = golib_ioutil.ReadDir(dir)
 
 	-- dir_scan will be nil if the directory is read-protected (no permissions)
 	if dir_scan == nil then
-		messenger:Error("Error scanning dir: ", scan_error)
+		micro.InfoBar():Error("Error scanning dir: ", scan_error)
 		return nil
 	end
 
-	-- The list of files to be returned (and eventually put in the view)
+	-- The list of files to be returned (and eventually put in the bufpane)
 	local results = {}
 	local files = {}
 
 	local function get_results_object(file_name)
-		local abs_path = JoinPaths(dir, file_name)
+		local abs_path = golib_filepath.Join(dir, file_name)
 		-- Use "+" for dir's, "" for files
 		local dirmsg = (is_dir(abs_path) and "+" or "")
 		return new_listobj(abs_path, dirmsg, ownership, indent_n)
 	end
 
-	-- Save so we don't have to rerun GetOption a bunch
-	local show_dotfiles = GetOption("filemanager-showdotfiles")
-	local show_ignored = GetOption("filemanager-showignored")
-	local folders_first = GetOption("filemanager-foldersfirst")
+	-- Save so we don't have to rerun config.GetGlobalOption a bunch
+	local show_dotfiles = config.GetGlobalOption("filemanager.showdotfiles")
+	local show_ignored = config.GetGlobalOption("filemanager.showignored")
+	local folders_first = config.GetGlobalOption("filemanager.foldersfirst")
 
 	-- The list of VCS-ignored files (if any)
 	-- Only bother getting ignored files if we're not showing ignored
@@ -194,7 +190,7 @@ local function get_scanlist(dir, ownership, indent_n)
 		end
 		if showfile then
 			-- This file is good to show, proceed
-			if folders_first and not is_dir(JoinPaths(dir, filename)) then
+			if folders_first and not is_dir(golib_filepath.Join(dir, filename)) then
 				-- If folders_first and this is a file, add it to (temporary) files
 				files[#files + 1] = get_results_object(filename)
 			else
@@ -223,12 +219,12 @@ local function get_safe_y(optional_y)
 	-- Make the passed y optional
 	if optional_y == nil then
 		-- Default to cursor's Y loc if nothing was passed, instead of declaring another y
-		optional_y = tree_view.Buf.Cursor.Loc.Y
+		optional_y = tree_BufPane.Cursor.Loc.Y
 	end
 	-- 0/1/2 would be the top "dir, separator, .." so check if it's past
 	if optional_y > 2 then
 		-- -2 to conform to our scanlist, since zero-based Go index & Lua's one-based
-		y = tree_view.Buf.Cursor.Loc.Y - 2
+		y = tree_BufPane.Cursor.Loc.Y - 2
 	end
 	return y
 end
@@ -236,9 +232,9 @@ end
 -- Joins the target dir's leading path to the passed name
 local function dirname_and_join(path, join_name)
 	-- The leading path to the dir we're in
-	local leading_path = DirectoryName(path)
+	local leading_path = golib_filepath.Dir(path)
 	-- Joins with OS-specific slashes
-	return JoinPaths(leading_path, join_name)
+	return golib_filepath.Join(leading_path, join_name)
 end
 
 -- Hightlights the line when you move the cursor up/down
@@ -248,22 +244,22 @@ local function select_line(last_y)
 		-- Don't let them move past ".." by checking the result first
 		if last_y > 1 then
 			-- If the last position was valid, move back to it
-			tree_view.Buf.Cursor.Loc.Y = last_y
+			tree_BufPane.Cursor.Loc.Y = last_y
 		end
-	elseif tree_view.Buf.Cursor.Loc.Y < 2 then
+	elseif tree_BufPane.Cursor.Loc.Y < 2 then
 		-- Put the cursor on the ".." if it's above it
-		tree_view.Buf.Cursor.Loc.Y = 2
+		tree_BufPane.Cursor.Loc.Y = 2
 	end
 
 	-- Puts the cursor back in bounds (if it isn't) for safety
-	tree_view.Buf.Cursor:Relocate()
+	tree_BufPane.Cursor:Relocate()
 
 	-- Makes sure the cursor is visible (if it isn't)
 	-- (false) means no callback
-	tree_view:Center(false)
+	tree_BufPane:Center()
 
 	-- Highlight the current line where the cursor is
-	tree_view.Buf.Cursor:SelectLine()
+	tree_BufPane.Cursor:SelectLine()
 end
 
 -- Simple true/false if scanlist is currently empty
@@ -275,24 +271,47 @@ local function scanlist_is_empty()
 	end
 end
 
+-- Just returns a number that the pane should be at for width
+local function get_best_width()
+	if tree_BufPane:GetView().Width > (30 + highest_visible_indent) then
+		-- Shave off some width
+		return 30 + highest_visible_indent
+	end
+	return 30
+end
+
+-- Correctly sizes the tree pane so it's 30% width (or more if it needs to fit a nested folder)
+local function resize_everything(resize_tabs)
+	-- This can be nil when the close event triggers a resize for some odd reason
+	-- So exit early to avoid errors if this happens
+	if tree_BufPane == nil then
+		return
+	end
+	-- Do an if-check here since this might not be necessary all the time..
+	if resize_tabs then
+		-- Resizes all views after opening a file
+		tree_BufPane:Tab():Resize()
+	end
+	-- Resize the pane to its best width
+	local best_width = get_best_width()
+	if tree_BufPane:GetView().Width ~= best_width then
+		tree_BufPane:ResizePane(best_width)
+	end
+end
+
 local function refresh_view()
 	clear_messenger()
 
-	-- If it's less than 30, just use 30 for width. Don't want it too small
-	if tree_view.Width < 30 then
-		tree_view.Width = 30
-	end
-
-	-- Delete everything in the view/buffer
-	tree_view.Buf:remove(tree_view.Buf:Start(), tree_view.Buf:End())
+	-- Delete everything in the bufpane/buffer
+	tree_BufPane.Buf.EventHandler:Remove(tree_BufPane.Buf:Start(), tree_BufPane.Buf:End())
 
 	-- Insert the top 3 things that are always there
 	-- Current dir
-	tree_view.Buf:insert(Loc(0, 0), current_dir .. "\n")
+	tree_BufPane.Buf.EventHandler:Insert(buffer.Loc(0, 0), current_dir .. "\n")
 	-- An ASCII separator
-	tree_view.Buf:insert(Loc(0, 1), repeat_str("─", tree_view.Width) .. "\n")
+	tree_BufPane.Buf.EventHandler:Insert(buffer.Loc(0, 1), repeat_str("─", get_best_width()) .. "\n")
 	-- The ".." and use a newline if there are things in the current dir
-	tree_view.Buf:insert(Loc(0, 2), (#scanlist > 0 and "..\n" or ".."))
+	tree_BufPane.Buf.EventHandler:Insert(buffer.Loc(0, 2), (#scanlist > 0 and "..\n" or ".."))
 
 	-- Holds the current basename of the path (purely for display)
 	local display_content
@@ -323,17 +342,18 @@ local function refresh_view()
 
 		-- Insert line-by-line to avoid out-of-bounds on big folders
 		-- +2 so we skip the 0/1/2 positions that hold the top dir/separator/..
-		tree_view.Buf:insert(Loc(0, i + 2), display_content)
+		tree_BufPane.Buf.EventHandler:Insert(buffer.Loc(0, i + 2), display_content)
 	end
 
 	-- Resizes all views after messing with ours
-	tabs[curTab + 1]:Resize()
+	-- true for resizing tabs too
+	resize_everything(true)
 end
 
--- Moves the cursor to the ".." in tree_view
+-- Moves the cursor to the ".." in tree_BufPane
 local function move_cursor_top()
 	-- 2 is the position of the ".."
-	tree_view.Buf.Cursor.Loc.Y = 2
+	tree_BufPane.Cursor.Loc.Y = 2
 
 	-- select the line after moving
 	select_line()
@@ -342,7 +362,7 @@ end
 local function refresh_and_select()
 	-- Save the cursor position before messing with the view..
 	-- because changing contents in the view causes the Y loc to move
-	local last_y = tree_view.Buf.Cursor.Loc.Y
+	local last_y = tree_BufPane.Cursor.Loc.Y
 	-- Actually refresh
 	refresh_view()
 	-- Moves the cursor back to it's original position
@@ -416,7 +436,7 @@ local function compress_target(y, delete_y)
 			-- Update the dir message
 			scanlist[y].dirmsg = "+"
 		end
-	elseif GetOption("filemanager-compressparent") and not delete_y then
+	elseif config.GetGlobalOption("filemanager.compressparent") and not delete_y then
 		goto_parent_dir()
 		-- Prevent a pointless refresh of the view
 		return
@@ -445,11 +465,7 @@ local function compress_target(y, delete_y)
 		scanlist = second_table
 	end
 
-	if tree_view.Width > (30 + highest_visible_indent) then
-		-- Shave off some width
-		tree_view.Width = 30 + highest_visible_indent
-	end
-
+	-- Will resize the view for us too
 	refresh_and_select()
 end
 
@@ -459,32 +475,30 @@ function prompt_delete_at_cursor()
 	local y = get_safe_y()
 	-- Don't let them delete the top 3 index dir/separator/..
 	if y == 0 or scanlist_is_empty() then
-		messenger:Error("You can't delete that")
+		micro.InfoBar():Error("You can't delete that")
 		-- Exit early if there's nothing to delete
 		return
 	end
 
-	local yes_del, no_del =
-		messenger:YesNoPrompt(
-		"Do you want to delete the " .. (scanlist[y].dirmsg ~= "" and "dir" or "file") .. ' "' .. scanlist[y].abspath .. '"? '
-	)
+	micro.InfoBar():YNPrompt(
+		"Do you want to delete the " .. (scanlist[y].dirmsg ~= "" and "dir" or "file") .. ' "' .. scanlist[y].abspath .. '"? ', function(yes, canceled)
 
-	if yes_del and not no_del then
+		if yes and not canceled then
 		-- Use Go's os.Remove to delete the file
-		local go_os = import("os")
 		-- Delete the target (if its a dir then the children too)
-		local remove_log = go_os.RemoveAll(scanlist[y].abspath)
+		local remove_log = golib_os.RemoveAll(scanlist[y].abspath)
 		if remove_log == nil then
-			messenger:Message("Filemanager deleted: ", scanlist[y].abspath)
+			micro.InfoBar():Message("Filemanager deleted: ", scanlist[y].abspath)
 			-- Remove the target (and all nested) from scanlist[y + 1]
 			-- true to delete y
 			compress_target(get_safe_y(), true)
 		else
-			messenger:Error("Failed deleting file/dir: ", remove_log)
+			micro.InfoBar():Error("Failed deleting file/dir: ", remove_log)
 		end
 	else
-		messenger:Message("Nothing was deleted")
+		micro.InfoBar():Message("Nothing was deleted")
 	end
+	end)
 end
 
 -- Changes the current dir in the top of the tree..
@@ -493,7 +507,7 @@ local function update_current_dir(path)
 	-- Clear the highest since this is a full refresh
 	highest_visible_indent = 0
 	-- Set the width back to 30
-	tree_view.Width = 30
+	tree_BufPane:ResizePane(30)
 	-- Update the current dir to the new path
 	current_dir = path
 
@@ -518,10 +532,10 @@ end
 -- (Tries to) go back one "step" from the current directory
 local function go_back_dir()
 	-- Use Micro's dirname to get everything but the current dir's path
-	local one_back_dir = DirectoryName(current_dir)
+	local one_back_dir = golib_filepath.Dir(current_dir)
 	-- Try opening, assuming they aren't at "root", by checking if it matches last dir
 	if one_back_dir ~= current_dir then
-		-- If DirectoryName returns different, then they can move back..
+		-- If golib_filepath.Dir returns different, then they can move back..
 		-- so we update the current dir and refresh
 		update_current_dir(one_back_dir)
 	end
@@ -545,14 +559,13 @@ local function try_open_at_y(y)
 			update_current_dir(scanlist[y].abspath)
 		else
 			-- If it's a file, then open it
-			messenger:Message("Filemanager opened ", scanlist[y].abspath)
+			micro.InfoBar():Message("Filemanager opened ", scanlist[y].abspath)
 			-- Opens the absolute path in new vertical view
-			CurView():VSplitIndex(NewBufferFromFile(scanlist[y].abspath), 1)
-			-- Resizes all views after opening a file
-			tabs[curTab + 1]:Resize()
+			micro.CurPane():VSplitIndex(buffer.NewBufferFromFile(scanlist[y].abspath), true)
+			resize_everything(true)
 		end
 	else
-		messenger:Error("Can't open that")
+		micro.InfoBar():Error("Can't open that")
 	end
 end
 
@@ -606,8 +619,6 @@ local function uncompress_target(y)
 			if scanlist[y].indent > highest_visible_indent and #scan_results >= 1 then
 				-- Save the new highest indent
 				highest_visible_indent = scanlist[y].indent
-				-- Increase the width to fit the new nested content
-				tree_view.Width = tree_view.Width + scanlist[y].indent
 			end
 		end
 
@@ -617,14 +628,13 @@ end
 
 -- Stat a path to check if it exists, returning true/false
 local function path_exists(path)
-	local go_os = import("os")
 	-- Stat the file/dir path we created
 	-- file_stat should be non-nil, and stat_err should be nil on success
-	local file_stat, stat_err = go_os.Stat(path)
+	local file_stat, stat_err = golib_os.Stat(path)
 	-- Check if what we tried to create exists
 	if stat_err ~= nil then
 		-- true/false if the file/dir exists
-		return go_os.IsExist(stat_err)
+		return golib_os.IsExist(stat_err)
 	elseif file_stat ~= nil then
 		-- Assume it exists if no errors
 		return true
@@ -634,15 +644,18 @@ end
 
 -- Prompts for a new name, then renames the file/dir at the cursor's position
 -- Not local so Micro can use it
-function rename_at_cursor(new_name)
-	if CurView() ~= tree_view then
-		messenger:Message("Rename only works with the cursor in the tree!")
+-- @param bufpane BufPane object passed in from micro editor
+-- @param args string array []
+function rename_at_cursor(bufpane, args)
+	local new_name = parse_args(args)
+	if micro.CurPane() ~= tree_BufPane then
+		micro.InfoBar():Message("Rename only works with the cursor in the tree!")
 		return
 	end
 
 	-- Safety check they actually passed a name
 	if new_name == nil then
-		messenger:Error('When using "rename" you need to input a new name')
+		micro.InfoBar():Error('When using "rename" you need to input a new name')
 		return
 	end
 
@@ -651,7 +664,7 @@ function rename_at_cursor(new_name)
 	-- Check if they're trying to rename the top stuff
 	if y == 0 then
 		-- Error since they tried to rename the top stuff
-		messenger:Message("You can't rename that!")
+		micro.InfoBar():Message("You can't rename that!")
 		return
 	end
 
@@ -660,17 +673,16 @@ function rename_at_cursor(new_name)
 	-- Join the path into their supplied rename, so that we have an absolute path
 	local new_path = dirname_and_join(old_path, new_name)
 	-- Use Go's os package for renaming the file/dir
-	local golib_os = import("os")
 	-- Actually rename the file
 	local log_out = golib_os.Rename(old_path, new_path)
 	-- Output the log, if any, of the rename
 	if log_out ~= nil then
-		messenger:AddLog("Rename log: ", log_out)
+		micro.Log("Rename log: ", log_out)
 	end
 
 	-- Check if the rename worked
 	if not path_exists(new_path) then
-		messenger:Error("Path doesn't exist after rename!")
+		micro.InfoBar():Error("Path doesn't exist after rename!")
 		return
 	end
 
@@ -682,15 +694,18 @@ function rename_at_cursor(new_name)
 end
 
 -- Prompts the user for the file/dir name, then creates the file/dir using Go's os package
+-- @param filedir_name string
+-- @param make_dir bool
+-- @return nothing
 local function create_filedir(filedir_name, make_dir)
-	if CurView() ~= tree_view then
-		messenger:Message("You can't create a file/dir if your cursor isn't in the tree!")
+	if micro.CurPane() ~= tree_BufPane then
+		micro.InfoBar():Message("You can't create a file/dir if your cursor isn't in the tree!")
 		return
 	end
 
 	-- Safety check they passed a name
 	if filedir_name == nil then
-		messenger:Error('You need to input a name when using "touch" or "mkdir"!')
+		micro.InfoBar():Error('You need to input a name when using "touch" or "mkdir"!')
 		return
 	end
 
@@ -706,38 +721,37 @@ local function create_filedir(filedir_name, make_dir)
 		-- If they're inserting on a folder, don't strip its path
 		if scanlist[y].dirmsg ~= "" then
 			-- Join our new file/dir onto the dir
-			filedir_path = JoinPaths(scanlist[y].abspath, filedir_name)
+			filedir_path = golib_filepath.Join(scanlist[y].abspath, filedir_name)
 		else
 			-- The current index is a file, so strip its name and join ours onto it
 			filedir_path = dirname_and_join(scanlist[y].abspath, filedir_name)
 		end
 	else
 		-- if nothing in the list, or cursor is on top of "..", use the current dir
-		filedir_path = JoinPaths(current_dir, filedir_name)
+		filedir_path = golib_filepath.Join(current_dir, filedir_name)
 	end
 
 	-- Check if the name is already taken by a file/dir
 	if path_exists(filedir_path) then
-		messenger:Error("You can't create a file/dir with a pre-existing name")
+		micro.InfoBar():Error("You can't create a file/dir with a pre-existing name")
 		return
 	end
 
 	-- Use Go's os package for creating the files
-	local golib_os = import("os")
 	-- Create the dir or file
 	if make_dir then
 		-- Creates the dir
 		golib_os.Mkdir(filedir_path, golib_os.ModePerm)
-		messenger:AddLog("Filemanager created directory: " .. filedir_path)
+		micro.Log("Filemanager created directory: " .. filedir_path)
 	else
 		-- Creates the file
 		golib_os.Create(filedir_path)
-		messenger:AddLog("Filemanager created file: " .. filedir_path)
+		micro.Log("Filemanager created file: " .. filedir_path)
 	end
 
 	-- If the file we tried to make doesn't exist, fail
 	if not path_exists(filedir_path) then
-		messenger:Error("The file/dir creation failed")
+		micro.InfoBar():Error("The file/dir creation failed")
 
 		return
 	end
@@ -753,7 +767,7 @@ local function create_filedir(filedir_name, make_dir)
 	-- Wrap the below checks so a y=0 doesn't break something
 	if not scanlist_empty and y ~= 0 then
 		-- +1 so it's highlighting the new file/dir
-		last_y = tree_view.Buf.Cursor.Loc.Y + 1
+		last_y = tree_BufPane.Cursor.Loc.Y + 1
 
 		-- Only actually add the object to the list if it's not created on an uncompressed folder
 		if scanlist[y].dirmsg == "+" then
@@ -802,21 +816,42 @@ local function create_filedir(filedir_name, make_dir)
 		-- The scanlist is empty (or cursor is on ".."), so we add on our new file/dir at the bottom
 		scanlist[#scanlist + 1] = new_filedir
 		-- Add current position so it takes into account where we are
-		last_y = #scanlist + tree_view.Buf.Cursor.Loc.Y
+		last_y = #scanlist + tree_BufPane.Cursor.Loc.Y
 	end
 
 	refresh_view()
 	select_line(last_y)
 end
 
+-- parse_args will check if the passed in string array is empty
+-- @param args string array[]
+-- @return nil or string [nil if the string array is empty]
+local function parse_args(args)
+	local return_string = nil
+	if #args == 0 then
+		-- args is empty
+	else
+	return_string = args[1]
+	end
+	return return_string
+end
+
 -- Triggered with "touch filename"
-function new_file(input_name)
+-- Not local so Micro can use it
+-- @param bufpane current BufPane object
+-- @param args string array[]
+function new_file(bufpane, args)
+	local input_name = parse_args(args)
 	-- False because not a dir
 	create_filedir(input_name, false)
 end
 
 -- Triggered with "mkdir dirname"
-function new_dir(input_name)
+-- Not local so Micro can use it
+-- @param bufpane current BufPane object
+-- @param args string array []
+function new_dir(bufpane, args)
+	local input_name = parse_args(args)
 	-- True because dir
 	create_filedir(input_name, true)
 end
@@ -824,46 +859,48 @@ end
 -- open_tree setup's the view
 local function open_tree()
 	-- Open a new Vsplit (on the very left)
-	CurView():VSplitIndex(NewBuffer("", "filemanager"), 0)
-	-- Save the new view so we can access it later
-	tree_view = CurView()
+	micro.CurPane():VSplitIndex(buffer.NewBuffer("", "filemanager"), false)
+	-- Save the new bufpane so we can access it later
+	tree_BufPane = micro.CurPane()
 
-	-- Set the width of tree_view to 30% & lock it
-	tree_view.Width = 30
-	tree_view.LockWidth = true
-	-- Set the type to unsavable (A "vtScratch" ViewType)
-	tree_view.Type.Kind = 2
-	tree_view.Type.Readonly = true
-	tree_view.Type.Scratch = true
+	-- Set the width of tree_BufPane to 30% & lock it
+	tree_BufPane:ResizePane(30)
+	-- tree_BufPane.LockWidth = true
+	-- Set the type to an unsavable, read-only buffer
+	tree_BufPane.Buf.Type.Kind = buffer.BTScratch
+	-- For some reason, you still need these even with a scratch type...
+	tree_BufPane.Buf.Type.Readonly = true
+	tree_BufPane.Buf.Type.Scratch = true
 
-	-- Set the various display settings, but only on our view (by using SetLocalOption instead of SetOption)
+	-- Set the various display settings, but only on our bufpane by using SetOption on the treevew buffer
 	-- NOTE: Micro requires the true/false to be a string
 	-- Softwrap long strings (the file/dir paths)
-	SetLocalOption("softwrap", "true", tree_view)
+	tree_BufPane.Buf:SetOption("softwrap", "true")
 	-- No line numbering
-	SetLocalOption("ruler", "false", tree_view)
+	tree_BufPane.Buf:SetOption("ruler", "false")
 	-- Is this needed with new non-savable settings from being "vtLog"?
-	SetLocalOption("autosave", "false", tree_view)
+	tree_BufPane.Buf:SetOption("autosave", "false")
 	-- Don't show the statusline to differentiate the view from normal views
-	SetLocalOption("statusline", "false", tree_view)
-	SetLocalOption("scrollbar", "false", tree_view)
+	tree_BufPane.Buf:SetOption("statusline", "false")
+	tree_BufPane.Buf:SetOption("scrollbar", "false")
 
-	-- Fill the scanlist, and then print its contents to tree_view
-	update_current_dir(WorkingDirectory())
+	-- Fill the scanlist, and then print its contents to tree_BufPane
+	update_current_dir(golib_os.Getwd())
 end
 
 -- close_tree will close the tree plugin view and release memory.
 local function close_tree()
-	if tree_view ~= nil then
-		tree_view:Quit(false)
-		tree_view = nil
+	if tree_BufPane ~= nil then
+		tree_BufPane:Quit()
+		tree_BufPane = nil
 		clear_messenger()
 	end
 end
 
 -- toggle_tree will toggle the tree view visible (create) and hide (delete).
+-- Not local so Micro can use it
 function toggle_tree()
-	if tree_view == nil then
+	if tree_BufPane == nil then
 		open_tree()
 	else
 		close_tree()
@@ -875,23 +912,25 @@ end
 -- Some are used in callbacks as well
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+-- Not local so it can be keybound
 function uncompress_at_cursor()
-	if CurView() == tree_view then
+	if micro.CurPane() == tree_BufPane then
 		uncompress_target(get_safe_y())
 	end
 end
 
+-- Not local so it can be keybound
 function compress_at_cursor()
-	if CurView() == tree_view then
+	if micro.CurPane() == tree_BufPane then
 		-- False to not delete y
 		compress_target(get_safe_y(), false)
 	end
 end
 
 -- Goes up 1 visible directory (if any)
--- Not local so it can be bound
+-- Not local so it can be keybound
 function goto_prev_dir()
-	if CurView() ~= tree_view or scanlist_is_empty() then
+	if micro.CurPane() ~= tree_BufPane or scanlist_is_empty() then
 		return
 	end
 
@@ -904,7 +943,7 @@ function goto_prev_dir()
 			-- If a dir, stop counting
 			if scanlist[i].dirmsg ~= "" then
 				-- Jump to its parent (the ownership)
-				tree_view.Buf.Cursor:UpN(move_count)
+				tree_BufPane.Cursor:UpN(move_count)
 				select_line()
 				break
 			end
@@ -913,9 +952,9 @@ function goto_prev_dir()
 end
 
 -- Goes down 1 visible directory (if any)
--- Not local so it can be bound
+-- Not local so it can be keybound
 function goto_next_dir()
-	if CurView() ~= tree_view or scanlist_is_empty() then
+	if micro.CurPane() ~= tree_BufPane or scanlist_is_empty() then
 		return
 	end
 
@@ -933,7 +972,7 @@ function goto_next_dir()
 			-- If a dir, stop counting
 			if scanlist[i].dirmsg ~= "" then
 				-- Jump to its parent (the ownership)
-				tree_view.Buf.Cursor:DownN(move_count)
+				tree_BufPane.Cursor:DownN(move_count)
 				select_line()
 				break
 			end
@@ -944,7 +983,7 @@ end
 -- Goes to the parent directory (if any)
 -- Not local so it can be keybound
 function goto_parent_dir()
-	if CurView() ~= tree_view or scanlist_is_empty() then
+	if micro.CurPane() ~= tree_BufPane or scanlist_is_empty() then
 		return
 	end
 
@@ -952,52 +991,53 @@ function goto_parent_dir()
 	-- Check if the cursor is even in a valid location for jumping to the owner
 	if cur_y > 0 then
 		-- Jump to its parent (the ownership)
-		tree_view.Buf.Cursor:UpN(cur_y - scanlist[cur_y].owner)
+		tree_BufPane.Cursor:UpN(cur_y - scanlist[cur_y].owner)
 		select_line()
 	end
 end
 
+-- Not local so it can be keybound
 function try_open_at_cursor()
-	if CurView() ~= tree_view or scanlist_is_empty() then
+	if micro.CurPane() ~= tree_BufPane or scanlist_is_empty() then
 		return
 	end
 
-	try_open_at_y(tree_view.Buf.Cursor.Loc.Y)
+	try_open_at_y(tree_BufPane.Cursor.Loc.Y)
 end
 
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 -- Shorthand functions for actions to reduce repeat code
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
--- Used to fail certain actions that we shouldn't allow on the tree_view
-local function false_if_tree(view)
-	if view == tree_view then
+-- Used to fail certain actions that we shouldn't allow on the tree_BufPane
+local function false_if_tree(bufpane)
+	if bufpane == tree_BufPane then
 		return false
 	end
 end
 
 -- Select the line at the cursor
-local function selectline_if_tree(view)
-	if view == tree_view then
+local function selectline_if_tree(bufpane)
+	if bufpane == tree_BufPane then
 		select_line()
 	end
 end
 
 -- Move the cursor to the top, but don't allow the action
-local function aftermove_if_tree(view)
-	if view == tree_view then
-		if tree_view.Buf.Cursor.Loc.Y < 2 then
+local function aftermove_if_tree(bufpane)
+	if bufpane == tree_BufPane then
+		if tree_BufPane.Cursor.Loc.Y < 2 then
 			-- If it went past the "..", move back onto it
-			tree_view.Buf.Cursor:DownN(2 - tree_view.Buf.Cursor.Loc.Y)
+			tree_BufPane.Cursor:DownN(2 - tree_BufPane.Cursor.Loc.Y)
 		end
 		select_line()
 	end
 end
 
-local function clearselection_if_tree(view)
-	if view == tree_view then
+local function clearselection_if_tree(bufpane)
+	if bufpane == tree_BufPane then
 		-- Clear the selection when doing a find, so it doesn't copy the current line
-		tree_view.Buf.Cursor:ResetSelection()
+		tree_BufPane.Cursor:ResetSelection()
 	end
 end
 
@@ -1007,8 +1047,8 @@ end
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 -- Close current
-function preQuit(view)
-	if view == tree_view then
+function preQuit(bufpane)
+	if bufpane == tree_BufPane then
 		-- A fake quit function
 		close_tree()
 		-- Don't actually "quit", otherwise it closes everything without saving for some reason
@@ -1016,15 +1056,23 @@ function preQuit(view)
 	end
 end
 
+function onQuit(bufpane)
+	if bufpane ~= tree_BufPane then
+		-- FIXME: Workaround needed to resize since closing files messes with width
+		-- Not sure what else to do about it...
+		resize_everything(true)
+	end
+end
+
 -- Close all
-function preQuitAll(view)
+function preQuitAll(bufpane)
 	close_tree()
 end
 
 -- FIXME: Workaround for the weird 2-index movement on cursordown
-function preCursorDown(view)
-	if view == tree_view then
-		tree_view.Buf.Cursor:Down()
+function preCursorDown(bufpane)
+	if bufpane == tree_BufPane then
+		tree_BufPane.Cursor:Down()
 		select_line()
 		-- Don't actually go down, as it moves 2 indicies for some reason
 		return false
@@ -1032,14 +1080,14 @@ function preCursorDown(view)
 end
 
 -- Up
-function onCursorUp(view)
-	selectline_if_tree(view)
+function onCursorUp(bufpane)
+	selectline_if_tree(bufpane)
 end
 
 -- Alt-Shift-{
 -- Go to target's parent directory (if exists)
-function preParagraphPrevious(view)
-	if view == tree_view then
+function preParagraphPrevious(bufpane)
+	if bufpane == tree_BufPane then
 		goto_prev_dir()
 		-- Don't actually do the action
 		return false
@@ -1048,48 +1096,56 @@ end
 
 -- Alt-Shift-}
 -- Go to next dir (if exists)
-function preParagraphNext(view)
-	if view == tree_view then
+function preParagraphNext(bufpane)
+	if bufpane == tree_BufPane then
 		goto_next_dir()
 		-- Don't actually do the action
 		return false
 	end
 end
 
+-- NewLine
+function preInsertNewline(bufpane)
+	if bufpane == tree_view then
+		return false
+	end
+	return true
+end
+
 -- PageUp
-function onCursorPageUp(view)
-	aftermove_if_tree(view)
+function onCursorPageUp(bufpane)
+	aftermove_if_tree(bufpane)
 end
 
 -- Ctrl-Up
-function onCursorStart(view)
-	aftermove_if_tree(view)
+function onCursorStart(bufpane)
+	aftermove_if_tree(bufpane)
 end
 
 -- PageDown
-function onCursorPageDown(view)
-	selectline_if_tree(view)
+function onCursorPageDown(bufpane)
+	selectline_if_tree(bufpane)
 end
 
 -- Ctrl-Down
-function onCursorEnd(view)
-	selectline_if_tree(view)
+function onCursorEnd(bufpane)
+	selectline_if_tree(bufpane)
 end
 
-function onNextSplit(view)
-	selectline_if_tree(view)
+function onNextSplit(bufpane)
+	selectline_if_tree(bufpane)
 end
 
-function onPreviousSplit(view)
-	selectline_if_tree(view)
+function onPreviousSplit(bufpane)
+	selectline_if_tree(bufpane)
 end
 
 -- On click, open at the click's y
-function preMousePress(view, event)
-	if view == tree_view then
+function preMousePress(bufpane, event)
+	if bufpane == tree_BufPane then
 		local x, y = event:Position()
 		-- Fixes the y because softwrap messes with it
-		local new_x, new_y = tree_view:GetMouseClickLocation(x, y)
+		local new_x, new_y = tree_BufPane:GetMouseClickLocation(x, y)
 		-- Try to open whatever is at the click's y index
 		-- Will go into/back dirs based on what's clicked, nothing gets expanded
 		try_open_at_y(new_y)
@@ -1099,18 +1155,18 @@ function preMousePress(view, event)
 end
 
 -- Up
-function preCursorUp(view)
-	if view == tree_view then
+function preCursorUp(bufpane)
+	if bufpane == tree_BufPane then
 		-- Disallow selecting past the ".." in the tree
-		if tree_view.Buf.Cursor.Loc.Y == 2 then
+		if tree_BufPane.Cursor.Loc.Y == 2 then
 			return false
 		end
 	end
 end
 
 -- Left
-function preCursorLeft(view)
-	if view == tree_view then
+function preCursorLeft(bufpane)
+	if bufpane == tree_BufPane then
 		-- +1 because of Go's zero-based index
 		-- False to not delete y
 		compress_target(get_safe_y(), false)
@@ -1120,8 +1176,8 @@ function preCursorLeft(view)
 end
 
 -- Right
-function preCursorRight(view)
-	if view == tree_view then
+function preCursorRight(bufpane)
+	if bufpane == tree_BufPane then
 		-- +1 because of Go's zero-based index
 		uncompress_target(get_safe_y())
 		-- Don't actually move the cursor, as it messes with selection
@@ -1134,12 +1190,12 @@ end
 local tab_pressed = false
 
 -- Tab
-function preIndentSelection(view)
-	if view == tree_view then
+function preIndentSelection(bufpane)
+	if bufpane == tree_BufPane then
 		tab_pressed = true
 		-- Open the file
 		-- Using tab instead of enter, since enter won't work with Readonly
-		try_open_at_y(tree_view.Buf.Cursor.Loc.Y)
+		try_open_at_y(tree_BufPane.Cursor.Loc.Y)
 		-- Don't actually insert a tab
 		return false
 	end
@@ -1147,22 +1203,22 @@ end
 
 -- Workaround for tab getting inserted into opened files
 -- Ref https://github.com/zyedidia/micro/issues/992
-function preInsertTab(view)
+function preInsertTab(bufpane)
 	if tab_pressed then
 		tab_pressed = false
 		return false
 	end
 end
 -- CtrlL
-function onJumpLine(view)
+function onJumpLine(bufpane)
 	-- Highlight the line after jumping to it
 	-- Also moves you to index 3 (2 in zero-base) if you went to the first 2 lines
-	aftermove_if_tree(view)
+	aftermove_if_tree(bufpane)
 end
 
 -- ShiftUp
-function preSelectUp(view)
-	if view == tree_view then
+function preSelectUp(bufpane)
+	if bufpane == tree_BufPane then
 		-- Go to the file/dir's parent dir (if any)
 		goto_parent_dir()
 		-- Don't actually selectup
@@ -1171,40 +1227,40 @@ function preSelectUp(view)
 end
 
 -- CtrlF
-function preFind(view)
+function preFind(bufpane)
 	-- Since something is always selected, clear before a find
 	-- Prevents copying the selection into the find input
-	clearselection_if_tree(view)
+	clearselection_if_tree(bufpane)
 end
 
 -- FIXME: doesn't work for whatever reason
-function onFind(view)
+function onFind(bufpane)
 	-- Select the whole line after a find, instead of just the input txt
-	selectline_if_tree(view)
+	selectline_if_tree(bufpane)
 end
 
 -- CtrlN after CtrlF
-function onFindNext(view)
-	selectline_if_tree(view)
+function onFindNext(bufpane)
+	selectline_if_tree(bufpane)
 end
 
 -- CtrlP after CtrlF
-function onFindPrevious(view)
-	selectline_if_tree(view)
+function onFindPrevious(bufpane)
+	selectline_if_tree(bufpane)
 end
 
 -- NOTE: This is a workaround for "cd" not having its own callback
 local precmd_dir
 
-function preCommandMode(view)
-	precmd_dir = WorkingDirectory()
+function preCommandMode(bufpane)
+	precmd_dir = golib_os.Getwd()
 end
 
 -- Update the current dir when using "cd"
-function onCommandMode(view)
-	local new_dir = WorkingDirectory()
+function onCommandMode(bufpane)
+	local new_dir = golib_os.Getwd()
 	-- Only do anything if the tree is open, and they didn't cd to nothing
-	if tree_view ~= nil and new_dir ~= precmd_dir and new_dir ~= current_dir then
+	if tree_BufPane ~= nil and new_dir ~= precmd_dir and new_dir ~= current_dir then
 		update_current_dir(new_dir)
 	end
 end
@@ -1214,146 +1270,158 @@ end
 -- Some of these need to be removed (read-only makes some useless)
 ------------------------------------------------------------------
 
-function preStartOfLine(view)
-	return false_if_tree(view)
+function preStartOfText(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preEndOfLine(view)
-	return false_if_tree(view)
+function preStartOfLine(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preMoveLinesDown(view)
-	return false_if_tree(view)
+function preEndOfLine(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preMoveLinesUp(view)
-	return false_if_tree(view)
+function preMoveLinesDown(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preWordRight(view)
-	return false_if_tree(view)
+function preMoveLinesUp(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preWordLeft(view)
-	return false_if_tree(view)
+function preWordRight(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectDown(view)
-	return false_if_tree(view)
+function preWordLeft(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectLeft(view)
-	return false_if_tree(view)
+function preSelectDown(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectRight(view)
-	return false_if_tree(view)
+function preSelectLeft(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectWordRight(view)
-	return false_if_tree(view)
+function preSelectRight(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectWordLeft(view)
-	return false_if_tree(view)
+function preSelectToStartOfText(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectToStartOfLine(view)
-	return false_if_tree(view)
+function preSelectWordRight(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectToEndOfLine(view)
-	return false_if_tree(view)
+function preSelectWordLeft(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectToStart(view)
-	return false_if_tree(view)
+function preSelectToStartOfLine(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectToEnd(view)
-	return false_if_tree(view)
+function preSelectToEndOfLine(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preDeleteWordLeft(view)
-	return false_if_tree(view)
+function preSelectToStart(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preDeleteWordRight(view)
-	return false_if_tree(view)
+function preSelectToEnd(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preOutdentSelection(view)
-	return false_if_tree(view)
+function preDeleteWordLeft(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preOutdentLine(view)
-	return false_if_tree(view)
+function preDeleteWordRight(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSave(view)
-	return false_if_tree(view)
+function preOutdentSelection(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preCut(view)
-	return false_if_tree(view)
+function preOutdentLine(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preCutLine(view)
-	return false_if_tree(view)
+function preSave(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preDuplicateLine(view)
-	return false_if_tree(view)
+function preCut(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function prePaste(view)
-	return false_if_tree(view)
+function preCutLine(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function prePastePrimary(view)
-	return false_if_tree(view)
+function preDuplicateLine(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preMouseMultiCursor(view)
-	return false_if_tree(view)
+function prePaste(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSpawnMultiCursor(view)
-	return false_if_tree(view)
+function prePastePrimary(bufpane)
+	return false_if_tree(bufpane)
 end
 
-function preSelectAll(view)
-	return false_if_tree(view)
+function preMouseMultiCursor(bufpane)
+	return false_if_tree(bufpane)
 end
 
--- Open/close the tree view
-MakeCommand("tree", "filemanager.toggle_tree", 0)
+function preSpawnMultiCursor(bufpane)
+	return false_if_tree(bufpane)
+end
+
+function preSelectAll(bufpane)
+	return false_if_tree(bufpane)
+end
+
+function init()
+-- Open/close the tree bufpane
+config.MakeCommand("tree", toggle_tree, config.NoComplete)
 -- Rename the file/dir under the cursor
-MakeCommand("rename", "filemanager.rename_at_cursor", 0)
+config.MakeCommand("rename", rename_at_cursor, config.NoComplete)
 -- Create a new file
-MakeCommand("touch", "filemanager.new_file", 0)
+config.MakeCommand("touch", new_file, config.NoComplete)
 -- Create a new dir
-MakeCommand("mkdir", "filemanager.new_dir", 0)
+config.MakeCommand("mkdir", new_dir, config.NoComplete)
 -- Delete a file/dir, and anything contained in it if it's a dir
-MakeCommand("rm", "filemanager.prompt_delete_at_cursor", 0)
+config.MakeCommand("rm", prompt_delete_at_cursor, config.NoComplete)
 -- Adds colors to the ".." and any dir's in the tree view via syntax highlighting
 -- TODO: Change it to work with git, based on untracked/changed/added/whatever
-AddRuntimeFile("filemanager", "syntax", "syntax.yaml")
+config.AddRuntimeFile("filemanager", config.RTSyntax, "syntax.yaml")
+-- Help file for this plugin can be viewed in micro editor
+config.AddRuntimeFile("filemanager", config.RTHelp, "help/filemanager-plugin.md")
 
 -- NOTE: This must be below the syntax load command or coloring won't work
 -- Just auto-open if the option is enabled
 -- This will run when the plugin first loads
-if GetOption("filemanager-openonstart") == true then
+if config.GetGlobalOption("filemanager.openonstart") == true then
 	-- Check for safety on the off-chance someone's init.lua breaks this
-	if tree_view == nil then
+	if tree_BufPane == nil then
 		open_tree()
 		-- Puts the cursor back in the empty view that initially spawns
 		-- This is so the cursor isn't sitting in the tree view at startup
-		CurView():NextSplit(false)
+		micro.CurPane():NextSplit()
 	else
 		-- Log error so they can fix it
-		messenger.AddLog(
+		micro.Log(
 			"Warning: filemanager-openonstart was enabled, but somehow the tree was already open so the option was ignored."
 		)
 	end
+end
 end
